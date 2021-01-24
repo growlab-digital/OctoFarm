@@ -127,7 +127,29 @@ class HistoryClean {
     logger.info("History information cleaned and ready for consumption");
   }
 
+  static checkNested(nameKey, myArray) {
+    for (var i = 0; i < myArray.length; i++) {
+      if (myArray[i].name === nameKey) {
+        return myArray[i];
+      }
+    }
+  }
+  static checkNestedIndex(nameKey, myArray) {
+    for (var i = 0; i < myArray.length; i++) {
+      if (myArray[i].name === nameKey) {
+        return i;
+      }
+    }
+  }
+
   static async getStatistics(historyClean) {
+    let lastThirtyDays = [];
+    let date = new Date();
+
+    let thirtyDaysAgo = date.getDate() - 30;
+    date.setDate(thirtyDaysAgo);
+    thirtyDaysAgo = date;
+
     function arrayCounts(arr) {
       const a = [];
       const b = [];
@@ -157,9 +179,24 @@ class HistoryClean {
     const printCost = [];
     const filamentCost = [];
     const arrayFailed = [];
+
+    const usageOverTime = [];
+    const totalByDay = [];
+    const historyByDay = [];
+
     for (let h = 0; h < historyClean.length; h++) {
       if (historyClean[h].state.includes("success")) {
         completed.push(true);
+        printTimes.push(historyClean[h].printTime);
+
+        fileNames.push(historyClean[h].file.name);
+
+        printerNames.push(historyClean[h].printer);
+
+        filamentWeight.push(historyClean[h].totalWeight);
+        filamentLength.push(historyClean[h].totalLength);
+
+        printCost.push(parseFloat(historyClean[h].printerCost));
       } else if (historyClean[h].state.includes("warning")) {
         cancelled.push(true);
         arrayFailed.push(historyClean[h].printTime);
@@ -168,18 +205,162 @@ class HistoryClean {
         arrayFailed.push(historyClean[h].printTime);
       }
 
-      printTimes.push(historyClean[h].printTime);
-
-      fileNames.push(historyClean[h].file.name);
-
-      printerNames.push(historyClean[h].printer);
-
-      filamentWeight.push(historyClean[h].totalWeight);
-      filamentLength.push(historyClean[h].totalLength);
-
-      printCost.push(parseFloat(historyClean[h].printerCost));
       filamentCost.push(historyClean[h].spoolCost);
+      historyClean[h].spools.forEach((spool) => {
+        //console.log(spool);
+        const keys = Object.keys(spool);
+        for (const key of keys) {
+          //check if type exists
+          let checkNested = this.checkNested(spool[key].type, totalByDay);
+
+          if (typeof checkNested !== "undefined") {
+            let checkNestedIndexHistoryRates = null;
+            if (historyClean[h].state.includes("success")) {
+              checkNestedIndexHistoryRates = this.checkNestedIndex(
+                "Success",
+                historyByDay
+              );
+            } else if (historyClean[h].state.includes("warning")) {
+              checkNestedIndexHistoryRates = this.checkNestedIndex(
+                "Cancelled",
+                historyByDay
+              );
+            } else if (historyClean[h].state.includes("danger")) {
+              checkNestedIndexHistoryRates = this.checkNestedIndex(
+                "Failed",
+                historyByDay
+              );
+            }
+
+            let checkNestedIndexByDay = this.checkNestedIndex(
+              spool[key].type,
+              usageOverTime
+            );
+            let usageWeightCalc = 0;
+
+            if (
+              typeof usageOverTime[checkNestedIndexByDay].data[0] !==
+              "undefined"
+            ) {
+              usageWeightCalc =
+                usageOverTime[checkNestedIndexByDay].data[
+                  usageOverTime[checkNestedIndexByDay].data.length - 1
+                ].y + historyClean[h].totalWeight;
+            } else {
+              usageWeightCalc = historyClean[h].totalWeight;
+            }
+
+            let checkNestedIndex = this.checkNestedIndex(
+              spool[key].type,
+              totalByDay
+            );
+            let dateSplit = historyClean[h].endDate.split(" ");
+            const months = [
+              "Jan",
+              "Feb",
+              "Mar",
+              "Apr",
+              "May",
+              "Jun",
+              "Jul",
+              "Aug",
+              "Sep",
+              "Oct",
+              "Nov",
+              "Dec",
+            ];
+            let month = months.indexOf(dateSplit[1]);
+            let dateParse = new Date(
+              parseInt(dateSplit[3]),
+              month + 1,
+              parseInt(dateSplit[2])
+            );
+            let weightCalcSan = parseFloat(
+              historyClean[h].totalWeight.toFixed(2)
+            );
+            let dateChecked = new Date(thirtyDaysAgo);
+            //Don't include 0 weights
+            if (weightCalcSan > 0) {
+              //Check if more than 30 days ago...
+              if (dateParse > dateChecked) {
+                totalByDay[checkNestedIndex].data.push({
+                  x: dateParse.toLocaleDateString(),
+                  y: weightCalcSan,
+                });
+                usageOverTime[checkNestedIndex].data.push({
+                  x: dateParse.toLocaleDateString(),
+                  y: usageWeightCalc,
+                });
+                // console.log(checkNestedIndexHistoryRates);
+                // console.log(historyByDay[checkNestedIndexHistoryRates].name);
+                historyByDay[checkNestedIndexHistoryRates].data.push({
+                  x: dateParse.toLocaleDateString(),
+                  y: 1,
+                });
+              }
+            }
+          } else {
+            let usageKey = {
+              name: spool[key].type,
+              data: [],
+            };
+            let usageByKey = {
+              name: spool[key].type,
+              data: [],
+            };
+            let successKey = {
+              name: "Success",
+              data: [],
+            };
+            let cancellKey = {
+              name: "Cancelled",
+              data: [],
+            };
+            let failedKey = {
+              name: "Failed",
+              data: [],
+            };
+
+            if (spool[key].type !== "") {
+              totalByDay.push(usageKey);
+            }
+            if (spool[key].type !== "") {
+              usageOverTime.push(usageByKey);
+            }
+            if (typeof historyByDay[0] === "undefined") {
+              historyByDay.push(successKey);
+              historyByDay.push(cancellKey);
+              historyByDay.push(failedKey);
+            }
+          }
+        }
+      });
     }
+    function sumValuesGroupByDate(input) {
+      var result = [];
+      input.reduce(function (res, value) {
+        if (!res[value.x]) {
+          res[value.x] = { x: value.x, y: 0 };
+          result.push(res[value.x]);
+        }
+        res[value.x].y += parseFloat(value.y);
+        return res;
+      }, {});
+      return result;
+      // var dates = {};
+      // input.forEach((dv) => (dates[dv.x] = (dates[dv.x] || 0) + dv.y));
+      // return Object.keys(dates).map((date) => ({
+      //   x: new Date(parseInt(date)).toLocaleDateString(),
+      //   y: dates[date],
+      // }));
+    }
+
+    totalByDay.forEach((usage) => {
+      usage.data = sumValuesGroupByDate(usage.data);
+    });
+    historyByDay.forEach((usage) => {
+      usage.data = sumValuesGroupByDate(usage.data);
+    });
     const totalFilamentWeight = filamentWeight.reduce((a, b) => a + b, 0);
     const totalFilamentLength = filamentLength.reduce((a, b) => a + b, 0);
     const filesArray = arrayCounts(fileNames);
@@ -203,6 +384,7 @@ class HistoryClean {
       leastUsedPrinter = printerNamesArray[0][minIndexPrinterNames];
     }
     const statTotal = completed.length + cancelled.length + failed.length;
+
     const statistics = {
       completed: completed.length,
       cancelled: cancelled.length,
@@ -243,6 +425,9 @@ class HistoryClean {
       totalPrinterCost: printCost.reduce((a, b) => a + b, 0).toFixed(2),
       highestPrinterCost: Math.max(...printCost).toFixed(2),
       currentFailed: arrayFailed.reduce((a, b) => a + b, 0),
+      totalByDay: totalByDay,
+      usageOverTime: usageOverTime,
+      historyByDay: historyByDay,
     };
     return statistics;
   }
@@ -278,7 +463,7 @@ class HistoryClean {
       metrics.filament !== null
     ) {
       if (!success) {
-        printPercentage = (metrics.estimatedPrintTime / time) * 100;
+        printPercentage = (time / metrics.estimatedPrintTime) * 100;
       }
       metrics = metrics.filament;
     } else {
@@ -319,11 +504,14 @@ class HistoryClean {
             const volume = length * Math.PI * radius * radius;
             let usage = "";
             if (success) {
-              usage = volume * parseFloat(spool.spools.profile.density);
+              usage = (
+                volume * parseFloat(spool.spools.profile.density)
+              ).toFixed(2);
             } else {
-              usage =
-                (volume * parseFloat(spool.spools.profile.density)) /
-                printPercentage;
+              usage = (
+                (printPercentage / 100) *
+                (volume * parseFloat(spool.spools.profile.density))
+              ).toFixed(2);
             }
             return usage;
           }
@@ -340,9 +528,9 @@ class HistoryClean {
             const volume = length * Math.PI * radius * radius;
             let usage = "";
             if (success) {
-              usage = volume * 1.24;
+              usage = (volume * 1.24).toFixed(2);
             } else {
-              usage = (volume * 1.24) / printPercentage;
+              usage = ((printPercentage / 100) * (volume * 1.24)).toFixed(2);
             }
             return usage;
           }
@@ -366,9 +554,9 @@ class HistoryClean {
           );
         } else {
           return (
-            ((spool.spools.price / spool.spools.weight) * grams) /
-            printPercentage
-          ).toFixed(2);
+            (printPercentage / 100) *
+            ((spool.spools.price / spool.spools.weight) * grams).toFixed(2)
+          );
         }
       } else {
         return null;
@@ -386,8 +574,8 @@ class HistoryClean {
               toolName: "Tool " + keys[m].substring(4, 5),
               spoolName: null,
               spoolId: null,
-              volume: metrics[keys[m]].volume,
-              length: metrics[keys[m]].length / 1000,
+              volume: metrics[keys[m]].volume.toFixed(2),
+              length: (metrics[keys[m]].length / 1000).toFixed(2),
               weight: null,
               cost: null,
             },
@@ -398,8 +586,14 @@ class HistoryClean {
               toolName: "Tool " + keys[m].substring(4, 5),
               spoolName: null,
               spoolId: null,
-              volume: metrics[keys[m]].volume / printPercentage,
-              length: metrics[keys[m]].length / 1000 / printPercentage,
+              volume: (
+                (printPercentage / 100) *
+                metrics[keys[m]].volume
+              ).toFixed(2),
+              length: (
+                ((printPercentage / 100) * metrics[keys[m]].length) /
+                1000
+              ).toFixed(2),
               weight: null,
               cost: null,
             },
@@ -417,6 +611,7 @@ class HistoryClean {
             spool[keys[m]].weight,
             filamentSelection[m]
           );
+
           spool[keys[m]].type = getType(filamentSelection[m]);
         } else {
           spool[keys[m]].spoolName = spoolName(filamentSelection);
